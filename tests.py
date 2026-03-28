@@ -394,6 +394,14 @@ class TestValidate(unittest.TestCase):
         self.assertFalse(is_next_url_safe('/bose/project/1', '/b.se'))
         self.assertTrue(is_next_url_safe('/base/project/export.csv', '/base'))
 
+    def test_tag_path_levels(self):
+        self.assertTrue(validate.tag_path('one'))
+        self.assertTrue(validate.tag_path('one/two/three/four/five'))
+        with self.assertRaises(validate.InvalidFormat):
+            validate.tag_path('one/two/three/four/five/six')
+        with self.assertRaises(validate.InvalidFormat):
+            validate.tag_path('one//three')
+
 
 class TestReadCodebook(unittest.TestCase):
     def test_valid_csv(self):
@@ -720,6 +728,68 @@ class TestMultiuser(MyHTTPTestCase):
         ) as response:
             self.assertEqual(response.status, 200)
             self.assertEqual(await response.json(), {"exists": False})
+
+    @gen_test(timeout=30)
+    async def test_leaf_tags_only_for_highlights(self):
+        # Accept cookies and log in
+        async with self.apost('/cookies', data=dict()) as response:
+            self.assertEqual(response.status, 303)
+        async with self.aget('/login') as response:
+            self.assertEqual(response.status, 200)
+        async with self.apost(
+            '/login',
+            data=dict(next='/', login='admin', password='hackme'),
+        ) as response:
+            self.assertEqual(response.status, 303)
+
+        # Create project
+        async with self.apost(
+            '/project/new',
+            data=dict(name='nested tags', description=''),
+        ) as response:
+            self.assertEqual(response.status, 303)
+            self.assertEqual(response.headers['Location'], '/project/1')
+
+        # Create tags with hierarchy
+        async with self.apost(
+            '/api/project/1/tag/new',
+            json=dict(path='level1', description=''),
+        ) as response:
+            self.assertEqual(response.status, 200)
+            parent_id = (await response.json())['id']
+        async with self.apost(
+            '/api/project/1/tag/new',
+            json=dict(path='level1/level2', description=''),
+        ) as response:
+            self.assertEqual(response.status, 200)
+            child_id = (await response.json())['id']
+
+        # Create document
+        async with self.apost(
+            '/api/project/1/document/new',
+            data=dict(name='doc', description=''),
+            files=dict(file=('doc.txt', 'text/plain', b'abcdef')),
+        ) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(await response.json(), {'created': 1})
+
+        # Parent tag can't be used for highlights
+        async with self.apost(
+            '/api/project/1/document/1/highlight/new',
+            json=dict(start_offset=0, end_offset=3, tags=[parent_id]),
+        ) as response:
+            self.assertEqual(response.status, 400)
+            self.assertEqual(
+                await response.json(),
+                {'error': 'Only leaf tags can be assigned to highlights'},
+            )
+
+        # Leaf tag can be used for highlights
+        async with self.apost(
+            '/api/project/1/document/1/highlight/new',
+            json=dict(start_offset=0, end_offset=3, tags=[child_id]),
+        ) as response:
+            self.assertEqual(response.status, 200)
 
     @gen_test(timeout=30)
     async def test_projects(self):

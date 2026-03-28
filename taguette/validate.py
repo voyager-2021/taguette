@@ -96,6 +96,11 @@ def tag_path(path):
         raise InvalidFormat(_f("Tag path cannot be empty"))
     if len(path) > 200:
         raise InvalidFormat(_f("Tag path is too long"))
+    levels = path.split('/')
+    if any(level == '' for level in levels):
+        raise InvalidFormat(_f("Tag path cannot contain empty levels"))
+    if len(levels) > 5:
+        raise InvalidFormat(_f("Tag path cannot have more than 5 levels"))
     return True
 
 
