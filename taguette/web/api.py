@@ -55,6 +55,29 @@ def api_auth(method):
     return wrapper
 
 
+def _non_leaf_tag_paths(db, project_id, tags):
+    selected = {
+        tag.id: tag.path
+        for tag in tags
+    }
+    if not selected:
+        return []
+
+    all_paths = [
+        row[0]
+        for row in db.query(database.Tag.path)
+        .filter(database.Tag.project_id == project_id)
+        .all()
+    ]
+    non_leaf = []
+    for path in selected.values():
+        prefix = path + '/'
+        if any(other != path and other.startswith(prefix)
+               for other in all_paths):
+            non_leaf.append(path)
+    return sorted(non_leaf)
+
+
 class CheckUser(BaseHandler):
     @api_auth
     @PROM_REQUESTS.sync('check_user')
@@ -475,6 +498,14 @@ class HighlightAdd(BaseHandler):
         )
         if set(tag.id for tag in tags) != new_tags:
             return self.send_error_json(400, self.gettext("No such tag"))
+        non_leaf = _non_leaf_tag_paths(self.db, document.project_id, tags)
+        if non_leaf:
+            return self.send_error_json(
+                400,
+                self.gettext(
+                    "Only leaf tags can be assigned to highlights",
+                ),
+            )
 
         snippet = extract.extract(document.contents, start, end)
         if all(c in '\r\n\t' for c in snippet):
@@ -551,6 +582,18 @@ class HighlightUpdate(BaseHandler):
                     return self.send_error_json(
                         400,
                         self.gettext("No such tag"),
+                    )
+                non_leaf = _non_leaf_tag_paths(
+                    self.db,
+                    document.project_id,
+                    tags,
+                )
+                if non_leaf:
+                    return self.send_error_json(
+                        400,
+                        self.gettext(
+                            "Only leaf tags can be assigned to highlights",
+                        ),
                     )
 
                 # Update tags in database
