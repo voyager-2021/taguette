@@ -841,10 +841,34 @@ function mergeTags(tag_src, tag_dest) {
   updateTagsList();
 }
 
+function getTagHierarchyInfo(entries) {
+  var sortedPaths = entries.map(function(e) { return e[1].path; }).sort();
+  var hierarchy = {};
+  for(var i = 0; i < entries.length; ++i) {
+    var tag = entries[i][1];
+    var levels = tag.path.split('/');
+    var prefix = tag.path + '/';
+    var isLeaf = true;
+    for(var j = 0; j < sortedPaths.length; ++j) {
+      if(sortedPaths[j] !== tag.path && sortedPaths[j].indexOf(prefix) === 0) {
+        isLeaf = false;
+        break;
+      }
+    }
+    hierarchy[tag.id] = {
+      depth: levels.length,
+      label: levels[levels.length - 1],
+      isLeaf: isLeaf,
+    };
+  }
+  return hierarchy;
+}
+
 function updateTagsList() {
   var entries = Object.entries(tags);
   var isReverse = sortTags[1] == 'desc';
   sortByKey(entries, function(e) { return e[1][sortTags[0]]; }, isReverse);
+  var hierarchy = getTagHierarchyInfo(entries);
 
   // The list in the left panel
 
@@ -858,11 +882,10 @@ function updateTagsList() {
     tags_list.removeChild(first);
   }
   // Fill up the list again
-  // TODO: Show this as a tree
-  var tree = {};
   var before = tags_list.firstChild;
   for(var i = 0; i < entries.length; ++i) {
     var tag = entries[i][1];
+    var info = hierarchy[tag.id];
     var elem = document.createElement('li');
     elem.className = 'list-group-item';
     if(current_tag !== null && tag.path.substr(0, current_tag.length) == current_tag) {
@@ -871,13 +894,14 @@ function updateTagsList() {
     elem.innerHTML =
       '<div class="d-flex justify-content-between align-items-center">' +
       '  <div class="tag-name">' +
-      '    <a id="tag-link-' + tag.id + '">' + escapeHtml(tag.path) + '</a>' +
+      '    <a id="tag-link-' + tag.id + '" title="' + escapeHtml(tag.path) + '">' + escapeHtml(info.label) + '</a>' +
       '  </div>' +
       '  <div style="white-space: nowrap;">' +
       '    <span class="badge badge-secondary badge-pill" id="tag-' + tag.id + '-count">' + tag.count + '</span>' +
       '    <a href="javascript:editTag(' + tag.id + ');" class="btn btn-primary btn-sm">' + gettext("Edit") + '</a>' +
       '  </div>' +
       '</div>';
+    elem.querySelector('.tag-name').style.paddingLeft = ((info.depth - 1) * 1.5) + 'rem';
     tags_list.insertBefore(elem, before);
     linkTag(document.getElementById('tag-link-' + tag.id), tag.path);
   }
@@ -902,6 +926,7 @@ function updateTagsList() {
 
 function updateModalTagsList() {
   var entries = Object.entries(tags);
+  var hierarchy = getTagHierarchyInfo(entries);
   // Save previous checked statuses
   var checked_tags = [];
   for(var i = 0; i < entries.length; ++i) {
@@ -941,11 +966,10 @@ function updateModalTagsList() {
   sortByKey(entries, function(e) { return e[1].searchGroup + e[1].path; });
 
   // Fill up the list again
-  // TODO: Show this as a tree
-  var tree = {};
   var before = tags_modal_list.firstChild;
   for(var i = 0; i < entries.length; ++i) {
     var tag = entries[i][1];
+    var info = hierarchy[tag.id];
     var elem = document.createElement('li');
     var searchHitClass = '';
     if(searchFor.length > 0) {
@@ -956,9 +980,14 @@ function updateModalTagsList() {
       }
     }
     elem.className = 'tag-name form-check ' + searchHitClass;
+    var disabled = info.isLeaf ? '' : ' disabled';
     elem.innerHTML =
-      '<input type="checkbox" class="form-check-input" value="' + tag.id + '" name="highlight-add-tags" id="highlight-add-tags-' + tag.id + '" />' +
-      '<label for="highlight-add-tags-' + tag.id + '" class="form-check-label ">' + escapeHtml(tag.path) + '</label>';
+      '<input type="checkbox" class="form-check-input" value="' + tag.id + '" name="highlight-add-tags" id="highlight-add-tags-' + tag.id + '"' + disabled + ' />' +
+      '<label for="highlight-add-tags-' + tag.id + '" class="form-check-label" title="' + escapeHtml(tag.path) + '">' + escapeHtml(info.label) + '</label>';
+    elem.style.paddingLeft = ((info.depth - 1) * 1.5) + 'rem';
+    if(!info.isLeaf) {
+      elem.classList.add('text-muted');
+    }
     tags_modal_list.insertBefore(elem, before);
   }
   if(entries.length == 0) {
